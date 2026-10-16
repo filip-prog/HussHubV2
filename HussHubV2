@@ -1,1345 +1,131 @@
--- HussHub V2 | Huss Valley
--- Made by @avongg6 @@og.gg.66
--- Discord - discord.gg/fRymbb9g
+-- HussHub V2 | Made by @avongg6 @@og.gg.66
+-- Discord: discord.gg/fRymbb9g
+-- Funcții: Auto Spin Wheel, Auto Claim Journey, Auto Map Vote, ESP, Hitbox
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local HttpService = game:GetService("HttpService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local StarterGui = game:GetService("StarterGui")
-
+local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
-local camera = workspace.CurrentCamera
+local HttpService = game:GetService("HttpService")
+
+-- ============ SERVICII JOC ============
+local COH = ReplicatedStorage:WaitForChild("ChickenOrHero")
+local SpinWheelEvent = COH:WaitForChild("SpinWheelEvent")
+local JourneyEvent = COH:WaitForChild("Progression"):WaitForChild("JourneyEvent")
+local MapVoteEvent = COH:WaitForChild("Game"):WaitForChild("MapVoteEvent")
+local MapVoteState = COH:WaitForChild("Game"):WaitForChild("MapVoteState")
 
 -- ============ CONFIG ============
 local CONFIG = {
-    -- Runner
-    AutoRun = true,
-    AutoTeleport = true,
-    AutoRevive = true,
-    AutoGems = true,
-    AvoidCatchers = true,
-    CustomSpeed = false,
-    SpeedMultiplier = 1.0,
-    
-    -- Catcher
-    CatcherChase = true,
-    AutoTackle = true,
-    AutoMelee = true,
-    SmartPriority = true,
-    CatcherCustomSpeed = false,
-    CatcherSpeedMultiplier = 1.0,
-    AttackPriority = "Smart",
-    
-    -- Wheel
     AutoSpinWheel = false,
-    WheelInterval = 6,
-    WheelMinCredits = 1,
-    
-    -- Journey
     AutoClaimJourney = false,
-    
-    -- Map Vote
     AutoMapVote = false,
-    MapVoteSelection = "Map 1",
-    
-    -- Utility
-    AntiIdleKick = true,
-    DisableAFK = false,
-    
-    -- Visuals
+    MapVoteSelection = "Map1",
     ESPEnabled = false,
     ESPColor = Color3.fromRGB(255, 182, 255),
-    TracerESP = false,
-    TracerColor = Color3.fromRGB(255, 182, 255),
-    TracerThickness = 0.15,
-    HitboxExpander = false,
+    HitboxEnabled = false,
     HitboxSize = 5,
-    ShowGoal = true,
-    ShowThreats = true,
-    
-    -- Auto Teleport
-    TeleportDelay = 0.1,
 }
-
--- ============ SERVICII JOC ============
-local COH = ReplicatedStorage:WaitForChild("ChickenOrHero", 10)
-if not COH then
-    warn("[HussHub V2] Joc nesuportat! Rulează în Huss Valley.")
-    return
-end
-
--- Safe references
-local Movement = COH:WaitForChild("Movement", 5)
-local MovementProfiles = Movement and require(Movement:WaitForChild("MovementProfiles"))
-local BoostInput = Movement and require(Movement:WaitForChild("BoostInput"))
-local Game = COH:WaitForChild("Game", 5)
-local Session = Game and Game:WaitForChild("Session", 5)
-local MapVoteState = Game and Game:WaitForChild("MapVoteState", 5)
-local MapVoteEvent = Game and Game:WaitForChild("MapVoteEvent", 5)
-local MeleeEvent = Game and Game:WaitForChild("MeleeEvent", 5)
-local GameAction = Game and Game:WaitForChild("GameAction", 5)
-local RescueEvent = Game and Game:WaitForChild("RescueEvent", 5)
-local ContactCatchConfig = Game and require(Game:WaitForChild("ContactCatchConfig", 5))
-local RescueConfig = COH:WaitForChild("Game", 5) and require(COH.Game:WaitForChild("RescueConfig", 5))
-local SpinWheelEvent = COH:WaitForChild("SpinWheelEvent", 5)
-local JourneyEvent = COH:WaitForChild("Progression", 5) and COH.Progression:WaitForChild("JourneyEvent", 5)
-local GemEvent = COH:WaitForChild("Collectibles", 5) and COH.Collectibles:WaitForChild("GemEvent", 5)
-local VowAbilityEvent = COH:WaitForChild("VowAbilityEvent", 5)
-
--- Rescue constants
-local RESCUE_RANGE = 5.75
-local RESCUE_HOLD = 1.2
-if RescueConfig then
-    RESCUE_RANGE = math.max(3, tonumber(RescueConfig.Range) or 6) - 0.25
-    RESCUE_HOLD = math.max(0.1, tonumber(RescueConfig.HoldSeconds) or 1.2)
-end
 
 -- ============ STATE ============
 local State = {
-    currentTarget = nil,
-    currentGoal = nil,
-    goalMode = "SafeZone",
-    path = Vector3.zero,
-    threats = {},
-    catchers = {},
-    runnerTargets = {},
-    catcherTarget = nil,
-    dashReady = true,
-    lastDash = 0,
-    lastMelee = 0,
-    lastTackle = 0,
-    reviveTarget = nil,
-    reviveStarted = false,
-    reviveStartTime = 0,
-    gemTarget = nil,
-    gemIgnored = {},
-    safezoneA = nil,
-    safezoneB = nil,
-    safezonesCached = false,
-    routeTarget = nil,
-    routeStart = nil,
-    lastPosition = nil,
-    lastMoveTime = 0,
-    stuck = false,
-    wheelCredits = 0,
-    wheelSpinning = false,
-    wheelNextAttempt = 0,
-    journeyLoaded = false,
-    journeyTier = 1,
-    journeyClaims = {},
-    journeyClaiming = false,
-    mapVotePhase = "Waiting",
     mapVoteToken = nil,
-    mapVoteOptionIds = {},
-    mapVoteLastAction = 0,
-    afkLastRequest = 0,
-    teleportedThisRound = false,
-    lastRoundState = nil,
-    visuals = {
-        goal = nil,
-        threats = {},
-        esp = {},
-        tracers = {},
-    },
+    mapVotePhase = "Waiting",
 }
 
--- ============ FLAGS UI ============
-getgenv().HussHubV2 = getgenv().HussHubV2 or {}
-local Flags = getgenv().HussHubV2
--- ============ HELPER FUNCTIONS ============
-local function flat(v)
-    return Vector3.new(v.X, 0, v.Z)
-end
-
-local function getCharacter(plr)
-    return (plr or LocalPlayer).Character
-end
-
-local function getHumanoid(plr)
-    local c = getCharacter(plr)
-    return c and c:FindFirstChildOfClass("Humanoid") or nil
-end
-
-local function getRoot(plr)
-    local c = getCharacter(plr)
-    return c and c:FindFirstChild("HumanoidRootPart") or nil
-end
-
-local function getRole()
-    return LocalPlayer:GetAttribute("GameRole") or "Lobby"
-end
-
-local function getRunState()
-    return LocalPlayer:GetAttribute("RunState") or "Idle"
-end
-
-local function isRunnerActive()
-    if LocalPlayer:GetAttribute("InMatch") ~= true then return false end
-    if getRole() ~= "Runner" then return false end
-    return getRunState() == "Active"
-end
-
-local function isCatcherActive()
-    if LocalPlayer:GetAttribute("InMatch") ~= true then return false end
-    if getRole() ~= "Catcher" then return false end
-    return getRunState() == "Active"
-end
-
-local function canMove()
-    if LocalPlayer:GetAttribute("ClientReady") ~= true then return false end
-    if Session and Session:GetAttribute("GlobalPaused") == true then return false end
-    if Session and Session:GetAttribute("MapChanging") == true then return false end
-    local c = getCharacter()
-    if not c then return false end
-    if c:GetAttribute("Ragdolled") == true then return false end
-    if c:GetAttribute("GearMotion") == true then return false end
-    if c:GetAttribute("MovementLocked") == true then return false end
-    local h = getHumanoid()
-    if not h or h.Health <= 0 then return false end
-    if h.PlatformStand or h.Sit then return false end
-    return true
-end
-
-local function getBaseSpeed(role)
-    role = role or getRole()
-    if MovementProfiles then
-        local ok, profile = pcall(MovementProfiles.get, role, LocalPlayer)
-        if ok and profile then return profile.MaxSpeed or 16 end
-    end
-    return 16
-end
-
-local function getRunnerSpeed()
-    local speed = math.max(getBaseSpeed("Runner"), 1)
-    if CONFIG.CustomSpeed then
-        speed *= math.clamp(CONFIG.SpeedMultiplier, 1, 2)
-    end
-    return speed
-end
-
-local function getCatcherSpeed()
-    local speed = math.max(getBaseSpeed("Catcher"), 1)
-    if CONFIG.CatcherCustomSpeed then
-        speed *= math.clamp(CONFIG.CatcherSpeedMultiplier, 1, 2)
-    end
-    return speed
-end
-
--- ============ SAFE ZONE DETECTION ============
-local function refreshSafezones()
-    if State.safezonesCached and State.safezoneA and State.safezoneB
-        and State.safezoneA.Parent and State.safezoneB.Parent then
-        return
-    end
-    State.safezonesCached = true
-    State.safezoneA = nil
-    State.safezoneB = nil
-
-    local map = workspace:FindFirstChild("Map1")
-    if not map then
-        for _, obj in ipairs(workspace:GetChildren()) do
-            if obj:FindFirstChild("Field") then
-                map = obj
-                break
-            end
-        end
-    end
-    if not map then return end
-
-    local field = map:FindFirstChild("Field")
-    if not field then return end
-
-    State.safezoneA = field:FindFirstChild("SafezoneASide")
-    State.safezoneB = field:FindFirstChild("SafezoneBSide")
-end
-
-local function getSafezonePositions()
-    refreshSafezones()
-    local a = State.safezoneA
-    local b = State.safezoneB
-    if not a or not b then return nil, nil end
-    return a.Position, b.Position
-end
-
-local function currentSafezone(position)
-    local a = State.safezoneA
-    local b = State.safezoneB
-    if not a or not b then return nil end
-    local distA = flat(position - a.Position).Magnitude
-    local distB = flat(position - b.Position).Magnitude
-    return distA < distB and "A" or "B"
-end
-
-local function getOppositeSafezone(position)
-    local current = currentSafezone(position)
-    if not current then return nil end
-    local a = State.safezoneA
-    local b = State.safezoneB
-    if current == "A" then return b.Position end
-    return a.Position
-end
-
--- ============ AUTO TELEPORT ============
-local function teleportToSafezone()
-    if not CONFIG.AutoTeleport then return false end
-    local root = getRoot()
-    if not root then return false end
-    
-    local target = getOppositeSafezone(root.Position)
-    if not target then return false end
-    
-    local char = getCharacter()
-    if not char then return false end
-    
-    local targetCFrame = CFrame.new(target + Vector3.new(0, 3, 0))
-    pcall(function()
-        char:PivotTo(targetCFrame)
-    end)
-    return true
-end
-
--- ============ GEMS ============
-local function isGemObject(obj)
-    local name = obj.Name:lower()
-    return obj:IsA("BasePart") and (
-        name:sub(1,4) == "gem_" or name == "gem" or name == "gems" 
-        or name:find("gempickup", 1, true) ~= nil
-    )
-end
-
-local function refreshGems(position)
-    local folder = workspace:FindFirstChild("LocalRunnerGems")
-    local best, bestDist
-    if folder then
-        for _, obj in ipairs(folder:GetChildren()) do
-            if isGemObject(obj) and obj.Parent then
-                local d = flat(obj.Position - position).Magnitude
-                local ignored = State.gemIgnored[obj]
-                if d <= 220 and (not ignored or os.clock() >= ignored) then
-                    if not bestDist or d < bestDist then
-                        best = obj
-                        bestDist = d
-                    end
-                end
-            end
-        end
-    end
-    State.gemTarget = best
-end
-
--- ============ REVIVE ============
-local function findDownedPlayer(position)
-    local best, bestDist
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Parent then
-            local c = plr.Character
-            local root = c and c:FindFirstChild("HumanoidRootPart")
-            if root and c:GetAttribute("RescueAvailable") == true 
-                and c:GetAttribute("Ragdolled") == true then
-                local helper = c:GetAttribute("RescueHelperId")
-                if helper == nil or helper == LocalPlayer.UserId then
-                    local d = flat(root.Position - position).Magnitude
-                    if d <= 220 and (not bestDist or d < bestDist) then
-                        best = plr
-                        bestDist = d
-                    end
-                end
-            end
-        end
-    end
-    return best
-end
-
-local function cancelRevive()
-    if State.reviveTarget and State.reviveStarted and RescueEvent then
-        pcall(function()
-            RescueEvent:FireServer("Cancelled", State.reviveTarget.UserId)
-        end)
-    end
-    State.reviveTarget = nil
-    State.reviveStarted = false
-    State.reviveStartTime = 0
-end
-
-local function updateRevive(now, position)
-    if not CONFIG.AutoRevive or not RescueEvent then
-        cancelRevive()
-        return nil
-    end
-    local target = State.reviveTarget
-    local root = target and getRoot(target)
-    if not target or not target.Parent or not root 
-        or target.Character:GetAttribute("RescueAvailable") ~= true 
-        or target.Character:GetAttribute("Ragdolled") ~= true then
-        cancelRevive()
-        target = nil
-    end
-    if not target then
-        target = findDownedPlayer(position)
-        if not target then return nil end
-        State.reviveTarget = target
-    end
-    root = getRoot(target)
-    if not root then cancelRevive() return nil end
-    State.goalMode = "Revive"
-    local distance = flat(root.Position - position).Magnitude
-    if distance > 220 then cancelRevive() return nil end
-    
-    if distance <= RESCUE_RANGE then
-        if not State.reviveStarted then
-            State.reviveStarted = true
-            State.reviveStartTime = now
-            pcall(function()
-                RescueEvent:FireServer("Begin", target.UserId)
-            end)
-        elseif now - State.reviveStartTime >= RESCUE_HOLD then
-            pcall(function()
-                RescueEvent:FireServer("Finish", target.UserId)
-            end)
-            State.reviveStarted = false
-            State.reviveStartTime = now + 0.5
-        end
-    elseif State.reviveStarted then
-        cancelRevive()
-    end
-    return root.Position
-end
-
--- ============ CATCHERS ============
-local catcherCacheAt = 0
-
-local function refreshCatchers()
-    local now = os.clock()
-    if now - catcherCacheAt < 0.12 then return end
-    catcherCacheAt = now
-    table.clear(State.catchers)
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Parent
-            and plr:GetAttribute("GameRole") == "Catcher"
-            and plr:GetAttribute("RunState") == "Active" then
-            local c = plr.Character
-            local h = c and c:FindFirstChildOfClass("Humanoid")
-            local r = c and c:FindFirstChild("HumanoidRootPart")
-            if h and h.Health > 0 and r
-                and c:GetAttribute("Ragdolled") ~= true
-                and c:GetAttribute("MovementLocked") ~= true then
-                table.insert(State.catchers, plr)
-            end
-        end
-    end
-end
-
-local function refreshRunnerTargets()
-    local now = os.clock()
-    if now - catcherCacheAt < 0.15 then return end
-    table.clear(State.runnerTargets)
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Parent
-            and plr:GetAttribute("GameRole") == "Runner"
-            and plr:GetAttribute("RunState") == "Active" then
-            local c = plr.Character
-            local h = c and c:FindFirstChildOfClass("Humanoid")
-            local r = c and c:FindFirstChild("HumanoidRootPart")
-            if h and h.Health > 0 and r and c:GetAttribute("Ragdolled") ~= true then
-                table.insert(State.runnerTargets, plr)
-            end
-        end
-    end
-end
-
--- ============ THREATS ============
-local threatHistory = {}
-local threatAt = 0
-
-local function updateThreats(now, position)
-    if now - threatAt < 0.045 then return State.threats end
-    threatAt = now
-    table.clear(State.threats)
-    local runRoot = getRoot()
-    local runVelocity = runRoot and flat(runRoot.AssemblyLinearVelocity) or Vector3.zero
-    local runSpeed = math.max(getRunnerSpeed(), 1)
-    if runVelocity.Magnitude < 3 and State.path.Magnitude > 0.05 then
-        runVelocity = State.path.Unit * runSpeed
-    end
-
-    for _, plr in ipairs(State.catchers) do
-        local root = getRoot(plr)
-        if root then
-            local current = flat(root.Position)
-            local offset = current - position
-            local distance = offset.Magnitude
-            if distance <= 105 then
-                local velocity = flat(root.AssemblyLinearVelocity)
-                local history = threatHistory[plr]
-                if not history then
-                    history = {position = current, velocity = velocity, time = now}
-                    threatHistory[plr] = history
-                end
-                local historyDt = now - history.time
-                local acceleration = Vector3.zero
-                if historyDt > 0.025 and historyDt < 0.25 then
-                    acceleration = (velocity - history.velocity) / historyDt
-                    if acceleration.Magnitude > 70 then
-                        acceleration = acceleration.Unit * 70
-                    end
-                end
-                history.position = current
-                history.velocity = velocity
-                history.time = now
-
-                local relative = current - position
-                local relativeVel = velocity - runVelocity
-                local relSq = relativeVel:Dot(relativeVel)
-                local closestTime = 0
-                if relSq > 0.25 then
-                    closestTime = math.clamp(-relative:Dot(relativeVel) / relSq, 0, 1.8)
-                end
-
-                local prediction = 0.65
-                local predictionPos = current + velocity * prediction + acceleration * (0.5 * prediction * prediction)
-
-                local danger = 8
-                if ContactCatchConfig then
-                    danger = 8 + (tonumber(ContactCatchConfig.MinForward) or 0)
-                        + math.max(0, tonumber(ContactCatchConfig.HandRadius) or 0)
-                        + math.max(0, tonumber(ContactCatchConfig.ContactPadding) or 0)
-                        + math.max(0, tonumber(ContactCatchConfig.RunnerRadius) or 0)
-                end
-
-                local closing = distance > 0.05 and math.max(0, velocity:Dot(-offset.Unit)) or 0
-                local timeToDanger = math.huge
-                if closing > 0.5 then
-                    timeToDanger = math.max(0, (distance - danger) / closing)
-                elseif distance <= danger then
-                    timeToDanger = 0
-                end
-
-                local interceptTime = math.min(closestTime, prediction)
-                if timeToDanger < interceptTime then interceptTime = timeToDanger end
-                local interceptCatcher = current + velocity * interceptTime
-                local interceptRunner = position + runVelocity * interceptTime
-                local interceptGap = flat(interceptCatcher - interceptRunner).Magnitude
-
-                table.insert(State.threats, {
-                    player = plr,
-                    position = current,
-                    velocity = velocity,
-                    distance = distance,
-                    closing = closing,
-                    predicted = predictionPos,
-                    intercept = interceptCatcher,
-                    interceptGap = interceptGap,
-                    interceptTime = interceptTime,
-                    danger = danger,
-                    timeToDanger = timeToDanger,
-                    collisionRisk = timeToDanger <= 0.72 or interceptGap <= danger * 1.35,
-                })
-            end
-        end
-    end
-
-    table.sort(State.threats, function(a, b)
-        if a.collisionRisk ~= b.collisionRisk then return a.collisionRisk end
-        if a.timeToDanger ~= b.timeToDanger then return a.timeToDanger < b.timeToDanger end
-        return a.interceptGap < b.interceptGap
-    end)
-
-    for plr, history in pairs(threatHistory) do
-        if not plr.Parent or now - history.time > 1.2 then
-            threatHistory[plr] = nil
-        end
-    end
-
-    return State.threats
-end
-
-local function routeClear(position, direction, threats)
-    if direction.Magnitude < 0.05 then return -math.huge end
-    local dir = direction.Unit
-    local speed = math.max(getRunnerSpeed(), 1)
-    local clearance = math.huge
-    local samples = {0.10, 0.22, 0.36, 0.52, 0.70, 0.90}
-    for _, t in ipairs(samples) do
-        local runner = position + dir * speed * t
-        for _, threat in ipairs(threats) do
-            local catchPos = threat.position + threat.velocity * t
-            local safe = flat(runner - catchPos).Magnitude - threat.danger
-            if safe < clearance then clearance = safe end
-        end
-    end
-    return clearance
-end
-
-local function checkStuck(now, position)
-    if not State.lastPosition then
-        State.lastPosition = position
-        State.lastMoveTime = now
-        State.stuck = false
-        return
-    end
-    if flat(position - State.lastPosition).Magnitude >= 0.5 then
-        State.lastPosition = position
-        State.lastMoveTime = now
-        State.stuck = false
-    elseif now - State.lastMoveTime > 0.55 then
-        State.stuck = true
-        State.lastMoveTime = now
-        State.lastPosition = position
-    end
-end
-
-local function generateUUID()
-    return string.format("%08x-%04x-%04x-%04x-%012x",
-        math.random(0, 0xFFFFFFFF),
-        math.random(0, 0xFFFF),
-        math.random(0, 0xFFFF),
-        math.random(0, 0xFFFF),
-        math.random(0, 0xFFFFFFFFFFFF)
-    )
-end
--- ============ RUNNER LOGIC ============
-local function runnerGoal(position, now)
-    refreshSafezones()
-    local a = State.safezoneA
-    local b = State.safezoneB
-    if not a or not b then return nil end
-
-    local currentZone = currentSafezone(position)
-    if not currentZone then
-        local distA = flat(position - a.Position).Magnitude
-        local distB = flat(position - b.Position).Magnitude
-        currentZone = distA < distB and "A" or "B"
-    end
-
-    local target = currentZone == "A" and b or a
-    State.currentGoal = target.Position + Vector3.new(0, 3, 0)
-    return State.currentGoal
-end
-
-local function chooseRunnerDirection(position, goal, threats)
-    local desired = flat(goal - position)
-    if desired.Magnitude < 0.05 then return Vector3.zero end
-    desired = desired.Unit
-
-    if not CONFIG.AvoidCatchers or #threats == 0 then
-        return desired
-    end
-
-    local candidates = {desired}
-    for _, angle in ipairs({15, -15, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90}) do
-        local r = math.rad(angle)
-        local c = math.cos(r)
-        local s = math.sin(r)
-        table.insert(candidates, Vector3.new(desired.X*c - desired.Z*s, 0, desired.X*s + desired.Z*c))
-    end
-
-    local best = desired
-    local bestScore = -math.huge
-    for _, candidate in ipairs(candidates) do
-        local progress = candidate:Dot(desired)
-        local clearance = routeClear(position, candidate, threats)
-        local score = progress * 10 + math.min(clearance, 20) * 2.4
-        if clearance < 0 then score -= math.abs(clearance) * 18 end
-        for _, threat in ipairs(threats) do
-            local away = flat(position - threat.intercept)
-            if away.Magnitude > 0.05 then
-                local urgency = math.clamp(1 - threat.interceptGap / (threat.danger * 3), 0, 1)
-                score += candidate:Dot(away.Unit) * urgency * (threat.collisionRisk and 14 or 4.5)
-            end
-        end
-        if score > bestScore then
-            bestScore = score
-            best = candidate
-        end
-    end
-    return best.Unit
-end
-
-local function requestDash(now)
-    if not isRunnerActive() then return false end
-    local character = getCharacter()
-    if not character then return false end
-    local cooldown = tonumber(character:GetAttribute("DashCooldownUntil")) or 0
-    if os.clock() < cooldown then return false end
-    if now - State.lastDash < 0.85 then return false end
-
-    if VowAbilityEvent then
-        pcall(function()
-            VowAbilityEvent:FireServer({
-                at = workspace:GetServerTimeNow(),
-                id = generateUUID(),
-                position = getRoot() and getRoot().Position or Vector3.zero,
-                direction = getRoot() and getRoot().CFrame.LookVector or Vector3.new(0,0,1),
-            })
-        end)
-        State.lastDash = now
-        return true
-    end
-    return false
-end
-
-local function runnerStep(now, dt)
-    if not CONFIG.AutoRun then return end
-    if not isRunnerActive() then
-        State.path = Vector3.zero
-        State.currentGoal = nil
-        cancelRevive()
-        return
-    end
-    if not canMove() then return end
-
-    local root = getRoot()
-    local hum = getHumanoid()
-    if not root or not hum then return end
-
-    -- Auto Teleport la începutul rundei
-    if CONFIG.AutoTeleport and not State.teleportedThisRound then
-        State.teleportedThisRound = true
-        task.delay(CONFIG.TeleportDelay, function()
-            teleportToSafezone()
-        end)
-    end
-
-    refreshCatchers()
-    local position = root.Position
-    local threats = updateThreats(now, position)
-    local goal = runnerGoal(position, now)
-    if not goal then return end
-
-    -- Revive check
-    local reviveGoal = nil
-    if CONFIG.AutoRevive then
-        local target = findDownedPlayer(position)
-        if target then
-            local targetRoot = getRoot(target)
-            if targetRoot then
-                reviveGoal = targetRoot.Position
-                State.goalMode = "Revive"
-            end
-        end
-    end
-
-    -- Gem check
-    local gemGoal = nil
-    if CONFIG.AutoGems and not reviveGoal then
-        refreshGems(position)
-        if State.gemTarget and State.gemTarget.Parent then
-            local d = flat(State.gemTarget.Position - position).Magnitude
-            if d <= 220 then
-                gemGoal = State.gemTarget.Position
-                State.goalMode = "Gem"
-            end
-        end
-    end
-
-    local movementGoal = reviveGoal or gemGoal or goal
-    if not movementGoal then
-        hum:Move(Vector3.zero, false)
-        State.path = Vector3.zero
-        return
-    end
-
-    local distance = flat(movementGoal - position).Magnitude
-    if distance <= 2.5 then
-        if State.goalMode == "Gem" then
-            State.gemIgnored[State.gemTarget] = now + 0.7
-            State.gemTarget = nil
-        end
-        State.goalMode = "SafeZone"
-    end
-
-    local direction = flat(movementGoal - position)
-    if direction.Magnitude < 0.05 then
-        hum:Move(Vector3.zero, false)
-        State.path = Vector3.zero
-        return
-    end
-    direction = direction.Unit
-
-    if CONFIG.AvoidCatchers and #threats > 0 then
-        direction = chooseRunnerDirection(position, movementGoal, threats)
-    end
-
-    checkStuck(now, position)
-    if State.stuck then
-        local center = getOppositeSafezone(position)
-        if center then
-            direction = flat(center - position).Unit
-        end
-    end
-
-    State.path = direction
-    hum.AutoRotate = true
-    hum:Move(direction, false)
-
-    -- Dash dacă e pericol
-    if #threats > 0 then
-        for _, threat in ipairs(threats) do
-            if threat.collisionRisk and threat.timeToDanger <= 0.5 then
-                requestDash(now)
-                break
-            end
-        end
-    end
-end
-
--- ============ CATCHER LOGIC ============
-local function selectCatcherTarget(now, myPosition)
-    refreshRunnerTargets()
-    local best, bestScore
-    for _, plr in ipairs(State.runnerTargets) do
-        local root = getRoot(plr)
-        if root then
-            local position = root.Position
-            local velocity = flat(root.AssemblyLinearVelocity)
-            local predicted = position + velocity * 0.45
-            local distance = flat(predicted - myPosition).Magnitude
-            local score = distance
-            if not bestScore or score < bestScore then
-                best = plr
-                bestScore = score
-            end
-        end
-    end
-    State.catcherTarget = best
-    return best
-end
-
-local function catcherAttack(target, now, root)
-    if not target or not root then return end
-    local c = getCharacter()
-    if c and c:GetAttribute("TackleActive") == true then return end
-    local targetRoot = getRoot(target)
-    if not targetRoot then return end
-
-    local targetVel = flat(targetRoot.AssemblyLinearVelocity)
-    local meleePos = targetRoot.Position + targetVel * 0.15
-    local tacklePos = targetRoot.Position + targetVel * 0.1
-
-    local meleeReady = CONFIG.AutoMelee and now - State.lastMelee >= 0.35
-        and flat(meleePos - root.Position).Magnitude <= 9
-    local tackleReady = CONFIG.AutoTackle and now - State.lastTackle >= 1.2
-        and flat(tacklePos - root.Position).Magnitude <= 12
-
-    if CONFIG.AttackPriority == "Tackle First" then
-        if tackleReady and GameAction then
-            pcall(function()
-                GameAction:FireServer("Tackle", {
-                    at = workspace:GetServerTimeNow(),
-                    direction = flat(targetRoot.Position - root.Position).Unit,
-                    position = root.Position,
-                    id = generateUUID(),
-                    speed = getCatcherSpeed(),
-                })
-            end)
-            State.lastTackle = now
-            return
-        end
-        if meleeReady and MeleeEvent then
-            pcall(function()
-                MeleeEvent:FireServer({
-                    id = generateUUID(),
-                    direction = flat(targetRoot.Position - root.Position).Unit,
-                    at = workspace:GetServerTimeNow(),
-                    position = root.Position,
-                })
-            end)
-            State.lastMelee = now
-        end
-    elseif CONFIG.AttackPriority == "Melee First" then
-        if meleeReady and MeleeEvent then
-            pcall(function()
-                MeleeEvent:FireServer({
-                    id = generateUUID(),
-                    direction = flat(targetRoot.Position - root.Position).Unit,
-                    at = workspace:GetServerTimeNow(),
-                    position = root.Position,
-                })
-            end)
-            State.lastMelee = now
-            return
-        end
-        if tackleReady and GameAction then
-            pcall(function()
-                GameAction:FireServer("Tackle", {
-                    at = workspace:GetServerTimeNow(),
-                    direction = flat(targetRoot.Position - root.Position).Unit,
-                    position = root.Position,
-                    id = generateUUID(),
-                    speed = getCatcherSpeed(),
-                })
-            end)
-            State.lastTackle = now
-        end
-    else
-        if tackleReady and targetVel.Magnitude >= 5 and GameAction then
-            pcall(function()
-                GameAction:FireServer("Tackle", {
-                    at = workspace:GetServerTimeNow(),
-                    direction = flat(targetRoot.Position - root.Position).Unit,
-                    position = root.Position,
-                    id = generateUUID(),
-                    speed = getCatcherSpeed(),
-                })
-            end)
-            State.lastTackle = now
-        elseif meleeReady and MeleeEvent then
-            pcall(function()
-                MeleeEvent:FireServer({
-                    id = generateUUID(),
-                    direction = flat(targetRoot.Position - root.Position).Unit,
-                    at = workspace:GetServerTimeNow(),
-                    position = root.Position,
-                })
-            end)
-            State.lastMelee = now
-        elseif tackleReady and GameAction then
-            pcall(function()
-                GameAction:FireServer("Tackle", {
-                    at = workspace:GetServerTimeNow(),
-                    direction = flat(targetRoot.Position - root.Position).Unit,
-                    position = root.Position,
-                    id = generateUUID(),
-                    speed = getCatcherSpeed(),
-                })
-            end)
-            State.lastTackle = now
-        end
-    end
-end
-
-local function catcherStep(now, dt)
-    if not isCatcherActive() then
-        State.catcherTarget = nil
-        return
-    end
-    if not CONFIG.CatcherChase and not CONFIG.AutoTackle and not CONFIG.AutoMelee then return end
-
-    local root = getRoot()
-    local hum = getHumanoid()
-    if not root or not hum or hum.Health <= 0 or hum.PlatformStand or hum.Sit then return end
-
-    local target = selectCatcherTarget(now, root.Position)
-    if not target then return end
-    local targetRoot = getRoot(target)
-    if not targetRoot then return end
-
-    if CONFIG.CatcherChase then
-        local direction = flat(targetRoot.Position - root.Position)
-        if direction.Magnitude > 0.05 then
-            hum.AutoRotate = true
-            hum:Move(direction.Unit, false)
-        end
-    end
-
-    if CONFIG.AutoTackle or CONFIG.AutoMelee then
-        catcherAttack(target, now, root)
-    end
-end
-
--- ============ SPEED OVERRIDE ============
-local function applySpeedOverride()
-    local hum = getHumanoid()
-    local char = getCharacter()
-    if not hum or not char then return end
-    if char:GetAttribute("MovementState") == "Dashing" 
-        or char:GetAttribute("MovementState") == "Boosting" then return end
-    local native = tonumber(char:GetAttribute("MovementSpeed"))
-    if not native or native <= 0 then return end
-    local role = getRole()
-    local speed = native
-    if role == "Runner" and CONFIG.CustomSpeed then
-        speed = native * math.clamp(CONFIG.SpeedMultiplier, 1, 2)
-    elseif role == "Catcher" and CONFIG.CatcherCustomSpeed then
-        speed = native * math.clamp(CONFIG.CatcherSpeedMultiplier, 1, 2)
-    end
-    if math.abs(hum.WalkSpeed - speed) > 0.05 then
-        hum.WalkSpeed = speed
-    end
-end
-
--- ============ AUTO SPIN WHEEL ============
-local function requestWheelState()
-    if not SpinWheelEvent then return end
-    pcall(function()
-        SpinWheelEvent:FireServer("State")
-    end)
-end
-
-local function spinWheel()
-    if not SpinWheelEvent then return end
-    local ok = pcall(function()
-        SpinWheelEvent:FireServer("Spin")
-    end)
-    return ok
-end
-
--- ============ AUTO CLAIM JOURNEY ============
-local function requestJourneyState()
-    if not JourneyEvent then return end
-    pcall(function()
-        JourneyEvent:FireServer("Get")
-    end)
-end
-
-local function claimJourney()
-    if not JourneyEvent then return end
-    pcall(function()
-        JourneyEvent:FireServer("ClaimAll", nil, "season_1")
-    end)
-end
-
--- ============ AUTO MAP VOTE ============
-local function voteMap(mapName)
-    if not MapVoteEvent or not State.mapVoteToken then return end
-    pcall(function()
-        MapVoteEvent:FireServer("Vote", mapName, State.mapVoteToken)
-    end)
-end
--- ============ WINDUI ============
+-- ============ UI ============
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
-
--- Theme negru/alb
-WindUI:SetTheme("Dark")
 
 local Window = WindUI:CreateWindow({
     Title = "HussHub V2",
-    Icon = "bird",
     Author = "By @avongg6 @@og.gg.66 | discord.gg/fRymbb9g",
     Folder = "HussHubV2",
-    Size = UDim2.fromOffset(700, 850),
-    Transparent = true,
+    Size = UDim2.fromOffset(600, 500),
     Theme = "Dark",
-    ToggleKey = Enum.KeyCode.RightShift,
-    ShowMobileButtons = false,
 })
 
-Window:Tag({Title = "HussHub V2", Color = Color3.fromRGB(255, 255, 255)})
+-- ============ TAB 1: MAIN ============
+local MainTab = Window:Tab({ Title = "Main", Icon = "home" })
 
--- Custom theme negru/alb
-pcall(function()
-    if WindUI.Scheme then
-        WindUI.Scheme.AccentColor = Color3.fromRGB(255, 255, 255)
-        WindUI.Scheme.BackgroundColor = Color3.fromRGB(0, 0, 0)
-        WindUI.Scheme.MainColor = Color3.fromRGB(0, 0, 0)
-        WindUI.Scheme.OutlineColor = Color3.fromRGB(50, 50, 50)
-        WindUI.Scheme.FontColor = Color3.fromRGB(255, 255, 255)
-    end
-end)
-
--- Tabs
-local Tabs = {
-    Info = Window:Tab({ Title = "Info", Icon = "info" }),
-    Runner = Window:Tab({ Title = "Runner", Icon = "footprints" }),
-    Catcher = Window:Tab({ Title = "Catcher", Icon = "crosshair" }),
-    Wheel = Window:Tab({ Title = "Wheel", Icon = "rotate-cw" }),
-    Journey = Window:Tab({ Title = "Journey", Icon = "gift" }),
-    MapVote = Window:Tab({ Title = "Map Vote", Icon = "map" }),
-    Visuals = Window:Tab({ Title = "Visuals", Icon = "eye" }),
-    Settings = Window:Tab({ Title = "Settings", Icon = "settings" }),
-}
-
--- ============ INFO TAB ============
-local InfoBox = Tabs.Info:Section({ Title = "HussHub V2" })
-InfoBox:Paragraph({
-    Title = "HussHub V2.0.0",
-    Desc = "Made by @avongg6 @@og.gg.66\nDiscord: discord.gg/fRymbb9g",
-})
-
-InfoBox:Button({
-    Title = "📋 Copy Discord Link",
-    Callback = function()
-        pcall(function()
-            setclipboard("discord.gg/fRymbb9g")
-            WindUI:Notify({ Title = "HussHub V2", Content = "Discord copied!", Duration = 3 })
-        end)
-    end,
-})
-
-local StatusBox = Tabs.Info:Section({ Title = "Live Status" })
-local RoleLabel = StatusBox:Paragraph({ Title = "Role", Desc = "Lobby" })
-local StateLabel = StatusBox:Paragraph({ Title = "State", Desc = "Idle" })
-local GoalLabel = StatusBox:Paragraph({ Title = "Goal", Desc = "None" })
-local ThreatLabel = StatusBox:Paragraph({ Title = "Threats", Desc = "0" })
-
-task.spawn(function()
-    while Window do
-        task.wait(0.3)
-        pcall(function()
-            RoleLabel:SetTitle("Role: " .. getRole())
-            StateLabel:SetTitle("State: " .. getRunState())
-            GoalLabel:SetTitle("Goal: " .. tostring(State.goalMode))
-            ThreatLabel:SetTitle("Threats: " .. #State.threats)
-        end)
-    end
-end)
-
--- ============ RUNNER TAB ============
-local RunnerBox = Tabs.Runner:Section({ Title = "Auto Run" })
-
-RunnerBox:Toggle({
-    Title = "Auto Run",
-    Value = true,
-    Callback = function(v) CONFIG.AutoRun = v end,
-})
-
-RunnerBox:Toggle({
-    Title = "Auto Teleport (Safe Zone)",
-    Value = true,
-    Callback = function(v) CONFIG.AutoTeleport = v end,
-})
-
-RunnerBox:Toggle({
-    Title = "Auto Revive Players",
-    Value = true,
-    Callback = function(v) CONFIG.AutoRevive = v end,
-})
-
-RunnerBox:Toggle({
-    Title = "Auto Collect Gems",
-    Value = true,
-    Callback = function(v) CONFIG.AutoGems = v end,
-})
-
-RunnerBox:Toggle({
-    Title = "Avoid Catchers",
-    Value = true,
-    Callback = function(v) CONFIG.AvoidCatchers = v end,
-})
-
-local SpeedBox = Tabs.Runner:Section({ Title = "Speed" })
-
-SpeedBox:Toggle({
-    Title = "Custom Speed",
-    Value = false,
-    Callback = function(v) CONFIG.CustomSpeed = v end,
-})
-
-SpeedBox:Slider({
-    Title = "Speed Multiplier",
-    Step = 0.1,
-    Value = { Min = 1.0, Max = 2.0, Default = 1.0 },
-    Callback = function(v) CONFIG.SpeedMultiplier = tonumber(v) or 1 end,
-})
-
-SpeedBox:Slider({
-    Title = "Teleport Delay (s)",
-    Step = 0.1,
-    Value = { Min = 0.0, Max = 2.0, Default = 0.1 },
-    Callback = function(v) CONFIG.TeleportDelay = tonumber(v) or 0.1 end,
-})
-
--- ============ CATCHER TAB ============
-local CatcherBox = Tabs.Catcher:Section({ Title = "Auto Chase" })
-
-CatcherBox:Toggle({
-    Title = "Auto Chase",
-    Value = true,
-    Callback = function(v) CONFIG.CatcherChase = v end,
-})
-
-CatcherBox:Toggle({
-    Title = "Auto Tackle",
-    Value = true,
-    Callback = function(v) CONFIG.AutoTackle = v end,
-})
-
-CatcherBox:Toggle({
-    Title = "Auto Melee",
-    Value = true,
-    Callback = function(v) CONFIG.AutoMelee = v end,
-})
-
-CatcherBox:Dropdown({
-    Title = "Attack Priority",
-    Values = {"Smart", "Tackle First", "Melee First"},
-    Value = "Smart",
-    Callback = function(v) CONFIG.AttackPriority = v end,
-})
-
-local CatcherSpeedBox = Tabs.Catcher:Section({ Title = "Speed" })
-
-CatcherSpeedBox:Toggle({
-    Title = "Custom Speed",
-    Value = false,
-    Callback = function(v) CONFIG.CatcherCustomSpeed = v end,
-})
-
-CatcherSpeedBox:Slider({
-    Title = "Speed Multiplier",
-    Step = 0.1,
-    Value = { Min = 1.0, Max = 2.0, Default = 1.0 },
-    Callback = function(v) CONFIG.CatcherSpeedMultiplier = tonumber(v) or 1 end,
-})
-
--- ============ WHEEL TAB ============
-local WheelBox = Tabs.Wheel:Section({ Title = "Auto Spin" })
-
-WheelBox:Toggle({
+MainTab:Section({ Title = "Auto Spin Wheel" })
+MainTab:Toggle({
     Title = "Auto Spin Wheel",
     Value = false,
     Callback = function(v) CONFIG.AutoSpinWheel = v end,
 })
-
-WheelBox:Slider({
-    Title = "Spin Interval (s)",
-    Step = 0.5,
-    Value = { Min = 5.5, Max = 30, Default = 6 },
-    Callback = function(v) CONFIG.WheelInterval = tonumber(v) or 6 end,
-})
-
-WheelBox:Slider({
-    Title = "Minimum Credits",
-    Step = 1,
-    Value = { Min = 1, Max = 50, Default = 1 },
-    Callback = function(v) CONFIG.WheelMinCredits = tonumber(v) or 1 end,
-})
-
-WheelBox:Button({
-    Title = "Spin Once Now",
+MainTab:Button({
+    Title = "Spin Once",
     Callback = function()
-        spinWheel()
-        WindUI:Notify({ Title = "Wheel", Content = "Spin request sent!", Duration = 3 })
+        pcall(function() SpinWheelEvent:FireServer("Spin") end)
     end,
 })
 
-WheelBox:Button({
-    Title = "Refresh State",
-    Callback = function()
-        requestWheelState()
-        WindUI:Notify({ Title = "Wheel", Content = "State refreshed!", Duration = 3 })
-    end,
-})
-
--- ============ JOURNEY TAB ============
-local JourneyBox = Tabs.Journey:Section({ Title = "Rewards" })
-
-JourneyBox:Toggle({
-    Title = "Auto Claim Rewards",
+MainTab:Section({ Title = "Auto Claim Journey" })
+MainTab:Toggle({
+    Title = "Auto Claim Journey",
     Value = false,
     Callback = function(v) CONFIG.AutoClaimJourney = v end,
 })
-
-JourneyBox:Button({
-    Title = "Claim Now",
+MainTab:Button({
+    Title = "Claim Once",
     Callback = function()
-        claimJourney()
-        WindUI:Notify({ Title = "Journey", Content = "Claim request sent!", Duration = 3 })
+        pcall(function() JourneyEvent:FireServer("ClaimAll", nil, "season_1") end)
     end,
 })
 
-JourneyBox:Button({
-    Title = "Refresh State",
-    Callback = function()
-        requestJourneyState()
-        WindUI:Notify({ Title = "Journey", Content = "State refreshed!", Duration = 3 })
-    end,
-})
-
--- ============ MAP VOTE TAB ============
-local MapVoteBox = Tabs.MapVote:Section({ Title = "Voting" })
-
-MapVoteBox:Dropdown({
+MainTab:Section({ Title = "Auto Map Vote" })
+MainTab:Dropdown({
     Title = "Preferred Map",
-    Values = {"Map 1", "Map 2", "Map 3"},
-    Value = "Map 1",
+    Values = {"Map1", "Map2", "Map3"},
+    Value = "Map1",
     Callback = function(v) CONFIG.MapVoteSelection = v end,
 })
-
-MapVoteBox:Toggle({
-    Title = "Auto Vote",
+MainTab:Toggle({
+    Title = "Auto Map Vote",
     Value = false,
     Callback = function(v) CONFIG.AutoMapVote = v end,
 })
-
-MapVoteBox:Button({
+MainTab:Button({
     Title = "Vote Now",
     Callback = function()
-        local mapNum = CONFIG.MapVoteSelection:match("%d+")
-        if mapNum and State.mapVoteToken then
-            voteMap("Map" .. mapNum)
-            WindUI:Notify({ Title = "Map Vote", Content = "Voted Map" .. mapNum, Duration = 3 })
+        if State.mapVoteToken then
+            pcall(function()
+                MapVoteEvent:FireServer("Vote", CONFIG.MapVoteSelection, State.mapVoteToken)
+            end)
         else
             WindUI:Notify({ Title = "Map Vote", Content = "No vote in progress", Duration = 3 })
         end
     end,
 })
--- ============ VISUALS TAB ============
-local ESPBox = Tabs.Visuals:Section({ Title = "ESP" })
 
-ESPBox:Toggle({
+-- ============ TAB 2: VISUALS ============
+local VisualsTab = Window:Tab({ Title = "Visuals", Icon = "eye" })
+
+VisualsTab:Section({ Title = "ESP" })
+VisualsTab:Toggle({
     Title = "Enable ESP",
     Value = false,
     Callback = function(v) CONFIG.ESPEnabled = v end,
 })
 
-ESPBox:Toggle({
-    Title = "Tracer ESP",
-    Value = false,
-    Callback = function(v) CONFIG.TracerESP = v end,
-})
-
-ESPBox:Slider({
-    Title = "Tracer Thickness",
-    Step = 0.05,
-    Value = { Min = 0.05, Max = 1, Default = 0.15 },
-    Callback = function(v) CONFIG.TracerThickness = tonumber(v) or 0.15 end,
-})
-
-local HitboxBox = Tabs.Visuals:Section({ Title = "Hitbox" })
-
-HitboxBox:Toggle({
+VisualsTab:Section({ Title = "Hitbox" })
+VisualsTab:Toggle({
     Title = "Hitbox Expander",
     Value = false,
-    Callback = function(v) CONFIG.HitboxExpander = v end,
+    Callback = function(v) CONFIG.HitboxEnabled = v end,
 })
-
-HitboxBox:Slider({
+VisualsTab:Slider({
     Title = "Hitbox Size",
     Step = 1,
     Value = { Min = 1, Max = 15, Default = 5 },
     Callback = function(v) CONFIG.HitboxSize = tonumber(v) or 5 end,
 })
 
-HitboxBox:Toggle({
-    Title = "Show Goal",
-    Value = true,
-    Callback = function(v) CONFIG.ShowGoal = v end,
-})
+-- ============ TAB 3: SETTINGS ============
+local SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings" })
 
-HitboxBox:Toggle({
-    Title = "Show Threats",
-    Value = true,
-    Callback = function(v) CONFIG.ShowThreats = v end,
-})
--- ============ SETTINGS TAB ============
-local SettingsBox = Tabs.Settings:Section({ Title = "Menu" })
-
-SettingsBox:Toggle({
-    Title = "Anti Idle Kick",
-    Value = true,
-    Callback = function(v) CONFIG.AntiIdleKick = v end,
-})
-
-SettingsBox:Toggle({
-    Title = "Disable Built-in AFK",
-    Value = false,
-    Callback = function(v) CONFIG.DisableAFK = v end,
-})
-
-SettingsBox:Button({
-    Title = "Rejoin Server",
-    Callback = function()
-        pcall(function()
-            game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
-        end)
-    end,
-})
-
-SettingsBox:Button({
+SettingsTab:Section({ Title = "Menu" })
+SettingsTab:Button({
     Title = "Unload Script",
     Callback = function()
         if getgenv().HussHubV2Unload then
@@ -1348,7 +134,13 @@ SettingsBox:Button({
     end,
 })
 
--- Buton flotant de deschidere/închidere
+SettingsTab:Section({ Title = "Info" })
+SettingsTab:Paragraph({
+    Title = "HussHub V2",
+    Desc = "Made by @avongg6 @@og.gg.66\nDiscord: discord.gg/fRymbb9g",
+})
+
+-- ============ BUTON DESCHIDERE/ÎNCHIDERE ============
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Name = "HussHubV2_Toggle"
 toggleBtn.Size = UDim2.fromOffset(50, 50)
@@ -1359,27 +151,131 @@ toggleBtn.Text = "H"
 toggleBtn.TextSize = 24
 toggleBtn.Font = Enum.Font.GothamBold
 toggleBtn.BorderSizePixel = 0
-toggleBtn.Parent = WindUI.ScreenGui or game:GetService("CoreGui")
+toggleBtn.Parent = game:GetService("CoreGui")
 Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 12)
 local toggleStroke = Instance.new("UIStroke", toggleBtn)
 toggleStroke.Color = Color3.fromRGB(100, 120, 255)
 toggleStroke.Thickness = 2
 
-local uiVisible = true
 toggleBtn.MouseButton1Click:Connect(function()
-    uiVisible = not uiVisible
-    if uiVisible then
-        pcall(function() Window:Show() end)
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    else
-        pcall(function() Window:Hide() end)
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(100, 120, 255)
+    pcall(function() Window:Toggle() end)
+end)
+
+-- ============ LISTENERS ============
+-- Journey State
+JourneyEvent.OnClientEvent:Connect(function(action, data)
+    if action == "State" and type(data) == "table" then
+        if CONFIG.AutoClaimJourney and data.message ~= "All available rewards collected." then
+            task.delay(2, function()
+                pcall(function() JourneyEvent:FireServer("ClaimAll", nil, "season_1") end)
+            end)
+        end
     end
 end)
 
+-- Map Vote State
+if MapVoteState and MapVoteState:IsA("StringValue") then
+    local function readMapVoteState()
+        local ok, state = pcall(function()
+            return HttpService:JSONDecode(MapVoteState.Value)
+        end)
+        if ok and type(state) == "table" then
+            State.mapVotePhase = tostring(state.phase or "Waiting")
+            State.mapVoteToken = state.token
+            if CONFIG.AutoMapVote and State.mapVotePhase == "Voting" and State.mapVoteToken then
+                task.delay(1, function()
+                    pcall(function()
+                        MapVoteEvent:FireServer("Vote", CONFIG.MapVoteSelection, State.mapVoteToken)
+                    end)
+                end)
+            end
+        end
+    end
+    readMapVoteState()
+    MapVoteState.Changed:Connect(readMapVoteState)
+end
+
+-- ============ LOOP-URI ============
+task.spawn(function()
+    while true do
+        task.wait(6)
+        if CONFIG.AutoSpinWheel and LocalPlayer:GetAttribute("InMatch") ~= true then
+            pcall(function() SpinWheelEvent:FireServer("Spin") end)
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(5)
+        if CONFIG.AutoClaimJourney and LocalPlayer:GetAttribute("InMatch") ~= true then
+            pcall(function() JourneyEvent:FireServer("ClaimAll", nil, "season_1") end)
+        end
+    end
+end)
+
+-- ============ ESP ============
+local function updateESP()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                if CONFIG.ESPEnabled then
+                    local highlight = plr.Character:FindFirstChild("HussHubV2_ESP")
+                    if not highlight then
+                        highlight = Instance.new("Highlight", plr.Character)
+                        highlight.Name = "HussHubV2_ESP"
+                    end
+                    highlight.FillColor = CONFIG.ESPColor
+                    highlight.OutlineColor = CONFIG.ESPColor
+                    highlight.FillTransparency = 0.7
+                    highlight.OutlineTransparency = 0
+                else
+                    local h = plr.Character:FindFirstChild("HussHubV2_ESP")
+                    if h then h:Destroy() end
+                end
+            end
+        end
+    end
+end
+
+-- ============ HITBOX ============
+local function updateHitbox()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                if CONFIG.HitboxEnabled then
+                    local size = CONFIG.HitboxSize
+                    hrp.Size = Vector3.new(size, size, size)
+                    hrp.Transparency = 0.5
+                    hrp.CanCollide = false
+                    hrp.Material = Enum.Material.ForceField
+                end
+            end
+        end
+    end
+end
+
+-- ============ MAIN LOOP ============
+RunService.Heartbeat:Connect(function()
+    pcall(updateESP)
+    pcall(updateHitbox)
+end)
+
+-- ============ UNLOAD ============
+local function unload()
+    pcall(function() Window:Destroy() end)
+    pcall(function() toggleBtn:Destroy() end)
+    getgenv().HussHubV2Unload = nil
+end
+
+getgenv().HussHubV2Unload = unload
+
+-- ============ NOTIFICATION ============
 WindUI:Notify({
     Title = "HussHub V2",
-    Content = "Loaded! By @avongg6 @@og.gg.66",
+    Content = "Loaded! By @avongg6",
     Duration = 4,
     Icon = "wind",
 })
