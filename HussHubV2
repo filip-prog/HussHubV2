@@ -1267,7 +1267,6 @@ MapVoteBox:Button({
         end
     end,
 })
-
 -- ============ VISUALS TAB ============
 local ESPBox = Tabs.Visuals:Section({ Title = "ESP" })
 
@@ -1275,20 +1274,12 @@ ESPBox:Toggle({
     Title = "Enable ESP",
     Value = false,
     Callback = function(v) CONFIG.ESPEnabled = v end,
-}):Colorpicker({
-    Title = "ESP Color",
-    Default = Color3.fromRGB(255, 182, 255),
-    Callback = function(v) CONFIG.ESPColor = v end,
 })
 
 ESPBox:Toggle({
     Title = "Tracer ESP",
     Value = false,
     Callback = function(v) CONFIG.TracerESP = v end,
-}):Colorpicker({
-    Title = "Tracer Color",
-    Default = Color3.fromRGB(255, 182, 255),
-    Callback = function(v) CONFIG.TracerColor = v end,
 })
 
 ESPBox:Slider({
@@ -1324,7 +1315,6 @@ HitboxBox:Toggle({
     Value = true,
     Callback = function(v) CONFIG.ShowThreats = v end,
 })
-
 -- ============ SETTINGS TAB ============
 local SettingsBox = Tabs.Settings:Section({ Title = "Menu" })
 
